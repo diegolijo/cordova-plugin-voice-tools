@@ -21,6 +21,12 @@ var VoiceTools = {
     }
     command('download', [tool || 'dictation'], success, error);
   },
+  keywords: function (tool, body, success, error) {
+    command('keywords', [tool, body], success, error);
+  },
+  capture: function (tool, success, error) {
+    command('capture', [tool], success, error);
+  },
   prepare: function (tool, success, error) {
     command('prepare', [tool], success, error);
   },

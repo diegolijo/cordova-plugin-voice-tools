@@ -253,12 +253,32 @@ public class ModelStore {
         return TOOL_WAKE.equals(value) || TOOL_COMMANDS.equals(value) || TOOL_DICTATION.equals(value);
     }
 
-    boolean isKwsReady(String tool) {
+    boolean isModelReady(String tool) {
         return kwsFile(tool, "encoder.int8.onnx") != null
             && kwsFile(tool, "decoder.onnx") != null
             && kwsFile(tool, "joiner.int8.onnx") != null
-            && kwsFile(tool, "tokens.txt") != null
-            && kwsFile(tool, "keywords.txt") != null;
+            && kwsFile(tool, "tokens.txt") != null;
+    }
+
+    boolean isKwsReady(String tool) {
+        return isModelReady(tool) && kwsFile(tool, "keywords.txt") != null;
+    }
+
+    void setKeywords(String tool, String body) throws IOException {
+        if (!TOOL_WAKE.equals(tool) && !TOOL_COMMANDS.equals(tool)) {
+            throw new IOException("Herramienta no válida: " + tool);
+        }
+        if (body == null || body.trim().isEmpty()) {
+            throw new IOException("La lista de " + tool + " está vacía");
+        }
+        File dir = new File(root, tool);
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IOException("No se pudo crear " + dir.getAbsolutePath());
+        }
+        String text = body.endsWith("\n") ? body : body + "\n";
+        try (FileOutputStream output = new FileOutputStream(new File(dir, "keywords.txt"))) {
+            output.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 
     File kwsEncoder(String tool) {
@@ -300,8 +320,7 @@ public class ModelStore {
             if (!dir.exists() && !dir.mkdirs()) {
                 throw new IOException("No se pudo crear " + dir.getAbsolutePath());
             }
-            writeKeywords(tool, dir);
-            if (isKwsReady(tool)) {
+            if (isModelReady(tool)) {
                 progress.onDownload("saved");
                 return;
             }
@@ -319,8 +338,7 @@ public class ModelStore {
                 downloadTo(COMMANDS_URL + "joiner-epoch-20-avg-2-chunk-16-left-64.int8.onnx", new File(dir, "joiner.int8.onnx"));
                 downloadTo(COMMANDS_URL + "tokens.txt", new File(dir, "tokens.txt"));
             }
-            writeKeywords(tool, dir);
-            if (!isKwsReady(tool)) {
+            if (!isModelReady(tool)) {
                 throw new IOException("El modelo de " + tool + " no se ha guardado");
             }
             progress.onDownload("saved");
@@ -335,14 +353,6 @@ public class ModelStore {
     private File kwsFile(String tool, String name) {
         File file = new File(new File(root, tool), name);
         return file.isFile() && file.length() > 0 ? file : null;
-    }
-
-    private static void writeKeywords(String tool, File dir) throws IOException {
-        String body = TOOL_WAKE.equals(tool) ? KeywordLists.WAKE : KeywordLists.COMMANDS;
-        File out = new File(dir, "keywords.txt");
-        try (FileOutputStream output = new FileOutputStream(out)) {
-            output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        }
     }
 
     private static Map<String, String> wakeNames() {

@@ -15,7 +15,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
-public class FastConformer extends CordovaPlugin implements RecognizerEngine.Listener, KeywordEngine.Listener {
+public class FastConformer extends CordovaPlugin implements RecognizerEngine.Listener, KeywordEngine.Listener, TokenCapture.Listener {
 
     private static final String TAG = "FastConformer";
     private static final int REQUEST_RECORD_AUDIO = 4721;
@@ -27,6 +27,7 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
     private ModelStore modelStore;
     private RecognizerEngine engine;
     private KeywordEngine keywords;
+    private TokenCapture tokens;
     private CallbackContext subscription;
     private String requestedLang = ModelStore.LANG_ES;
     private String loadedLang;
@@ -35,12 +36,14 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
     private boolean pendingArm;
     private boolean pendingStart;
     private String pendingMode = RecognizerEngine.MODE_CONTINUOUS;
+    private String pendingCapture;
 
     @Override
     protected void pluginInitialize() {
         modelStore = new ModelStore(cordova.getContext());
         engine = new RecognizerEngine();
         keywords = new KeywordEngine();
+        tokens = new TokenCapture();
     }
 
     @Override
@@ -61,6 +64,19 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
                 boolean arm = "use".equals(action);
                 ack(callbackContext, action);
                 cordova.getThreadPool().execute(() -> openTool(tool, arm));
+                return true;
+            }
+            if ("keywords".equals(action)) {
+                String tool = args.getString(0);
+                String body = args.getString(1);
+                ack(callbackContext, action);
+                cordova.getThreadPool().execute(() -> saveKeywords(tool, body));
+                return true;
+            }
+            if ("capture".equals(action)) {
+                String tool = args.getString(0);
+                ack(callbackContext, action);
+                cordova.getThreadPool().execute(() -> capture(tool));
                 return true;
             }
             if ("download".equals(action)) {
@@ -101,6 +117,9 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
 
     @Override
     public void onDestroy() {
+        if (tokens != null) {
+            tokens.stop();
+        }
         if (keywords != null) {
             keywords.release();
         }
@@ -131,6 +150,12 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
             return;
         }
         cordova.getThreadPool().execute(() -> {
+            if (pendingCapture != null) {
+                String tool = pendingCapture;
+                pendingCapture = null;
+                capture(tool);
+                return;
+            }
             if (pendingStart && pendingTool == null) {
                 String mode = pendingMode;
                 pendingStart = false;
@@ -269,8 +294,12 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
             enable(requestedLang == null ? ModelStore.LANG_ES : requestedLang);
             return;
         }
-        if (!modelStore.isKwsReady(tool)) {
+        if (!modelStore.isModelReady(tool)) {
             emitError("Descarga " + tool + " antes de usarlo");
+            return;
+        }
+        if (!modelStore.isKwsReady(tool)) {
+            emitError("Pasa la lista de " + tool + " antes de usarlo");
             return;
         }
         if (!hasRecordPermission()) {
@@ -289,7 +318,8 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
                     modelStore.kwsDecoder(tool),
                     modelStore.kwsJoiner(tool),
                     modelStore.kwsTokens(tool),
-                    modelStore.kwsKeywords(tool)
+                    modelStore.kwsKeywords(tool),
+                    ModelStore.TOOL_WAKE.equals(tool) ? 0.15f : 0.25f
                 );
             }
             if (arm) {
@@ -336,10 +366,64 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
     }
 
     private void stopListening() {
+        if (tokens != null && tokens.isListening()) {
+            tokens.stop();
+        }
         stopKeywords();
         if (engine != null && engine.isListening()) {
             engine.stop();
         }
+    }
+
+    private void saveKeywords(String tool, String body) {
+        try {
+            modelStore.setKeywords(tool, body);
+            keywords.replaceKeywords(tool, body);
+            emit(event("keywords").put("tool", tool));
+        } catch (Exception e) {
+            Log.e(TAG, "keywords", e);
+            emitError(e.getMessage() == null ? "No se pudo guardar la lista" : e.getMessage());
+        }
+    }
+
+    private void capture(String tool) {
+        if (!ModelStore.TOOL_WAKE.equals(tool) && !ModelStore.TOOL_COMMANDS.equals(tool)) {
+            emitError("Herramienta no válida: " + tool);
+            return;
+        }
+        if (!modelStore.isModelReady(tool)) {
+            emitError("Descarga " + tool + " antes de escuchar una palabra");
+            return;
+        }
+        if (!hasRecordPermission()) {
+            pendingCapture = tool;
+            cordova.getActivity().runOnUiThread(() ->
+                PermissionHelper.requestPermissions(this, REQUEST_RECORD_AUDIO, PERMISSIONS));
+            return;
+        }
+        stopListening();
+        tokens.start(
+            tool,
+            modelStore.kwsEncoder(tool),
+            modelStore.kwsDecoder(tool),
+            modelStore.kwsJoiner(tool),
+            modelStore.kwsTokens(tool),
+            this
+        );
+    }
+
+    @Override
+    public void onTokens(String tool, String heard) {
+        try {
+            emit(event("tokens").put("tool", tool).put("tokens", heard == null ? "" : heard));
+        } catch (JSONException e) {
+            emitError(e.getMessage());
+        }
+    }
+
+    @Override
+    public void onCaptureError(String message) {
+        emitError(message);
     }
 
     private void stopKeywords() {
@@ -479,8 +563,11 @@ public class FastConformer extends CordovaPlugin implements RecognizerEngine.Lis
         if ("ready".equals(type) || "prepared".equals(type)) {
             return "modelo";
         }
-        if ("text".equals(type) || "keyword".equals(type)) {
+        if ("text".equals(type) || "keyword".equals(type) || "tokens".equals(type)) {
             return "texto";
+        }
+        if ("keywords".equals(type)) {
+            return "modelo";
         }
         return "audio";
     }

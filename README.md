@@ -2,8 +2,8 @@
 
 Suite de voz **offline** para Cordova Android, sobre [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13.8. Tres herramientas, cada una se elige aparte:
 
-- `wake`. Detector de palabras (Zipformer inglés, unos 5 MB). Mira trozos cortos y no espera al silencio. La lista que trae es la palabra `KITT`.
-- `commands`. El mismo detector, con el Zipformer en español de la comunidad. La orden es una frase corta de la lista (`APAGA`, `SIGUIENTE`, `LOS_CUARENTA`, `METAL`…), no un texto libre.
+- `wake`. Detector de palabras (Zipformer inglés, unos 5 MB). Mira trozos cortos y no espera al silencio. La lista la escribe la app.
+- `commands`. El mismo detector, con el Zipformer en español de la comunidad. La orden es una frase corta de la lista que escribe la app, no un texto libre.
 - `dictation`. FastConformer CTC int8 (español 1424 h, inglés 24500 h) con Silero VAD. Sirve para comparar. El español son unos 99 MB y el inglés unos 100 MB.
 
 La clase TypeScript es `VoiceTools`, en `typescript/voice-tools.ts`. `init()` localiza el plugin. Los resultados llegan por `subscribe()`.
@@ -45,7 +45,11 @@ VoiceTools.subscribe((event: VoiceEvent) => {
 VoiceTools.download('wake');
 ```
 
-`prepare(tool)` carga el modelo y no cierra el micrófono de la herramienta que ya escucha. `use(tool)` la deja activa y cierra el micrófono anterior; después hace falta `start()`. `download('dictation')` baja el FastConformer español. `download('en')` baja el inglés, y `enable('en')` lo cambia en caliente.
+`prepare(tool)` carga el modelo y no cierra el micrófono de la herramienta que ya escucha. Antes hace falta `keywords(tool, texto)`: el plugin no trae ninguna lista. `use(tool)` la deja activa y cierra el micrófono anterior; después hace falta `start()`.
+
+`capture('wake')` oye una palabra y empuja `{ type: 'tokens', tokens }`. En `wake` esos tokens son fonemas (`K IH1 T`). En `commands` son las piezas del modelo español. La app guarda la línea `tokens @ETIQUETA` y la vuelve a mandar con `keywords()`.
+
+`download('dictation')` baja el FastConformer español. `download('en')` baja el inglés, y `enable('en')` lo cambia en caliente.
 
 `start()` en `wake` y `commands` empuja `{ type: 'keyword', keyword }` en cuanto la lista acierta. En `dictation`, `start('continuous' | 'oneshot' | 'manual')` empuja `{ type: 'text' }` al cerrar la frase.
 

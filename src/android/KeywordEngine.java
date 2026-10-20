@@ -56,7 +56,7 @@ public class KeywordEngine {
         }
     }
 
-    void load(String tool, File encoder, File decoder, File joiner, File tokens, File keywords) {
+    void load(String tool, File encoder, File decoder, File joiner, File tokens, File keywords, float threshold) {
         System.loadLibrary("onnxruntime");
         System.loadLibrary("sherpa-onnx-c-api");
         System.loadLibrary("sherpa-onnx-cxx-api");
@@ -84,7 +84,7 @@ public class KeywordEngine {
         config.setMaxActivePaths(4);
         config.setKeywordsFile(keywords.getAbsolutePath());
         config.setKeywordsScore(1.5f);
-        config.setKeywordsThreshold(tool.equals(ModelStore.TOOL_WAKE) ? 0.15f : 0.25f);
+        config.setKeywordsThreshold(threshold);
         config.setNumTrailingBlanks(1);
 
         KeywordSpotter spotter = new KeywordSpotter(null, config);
@@ -100,6 +100,15 @@ public class KeywordEngine {
             }
         }
         Log.i(TAG, "[voz|modelo] detector cargado tool=" + tool);
+    }
+
+    void replaceKeywords(String tool, String body) {
+        synchronized (lock) {
+            Slot slot = slots.get(tool);
+            if (slot != null) {
+                slot.replaceKeywords(body);
+            }
+        }
     }
 
     void arm(String tool) {
@@ -248,14 +257,21 @@ public class KeywordEngine {
 
     private static final class Slot {
         private final KeywordSpotter spotter;
-        private final OnlineStream stream;
+        private OnlineStream stream;
 
         Slot(KeywordSpotter spotter, OnlineStream stream) {
             this.spotter = spotter;
             this.stream = stream;
         }
 
-        String accept(float[] samples, int length) {
+        synchronized void replaceKeywords(String body) {
+            OnlineStream next = spotter.createStream(body);
+            OnlineStream previous = stream;
+            stream = next;
+            previous.release();
+        }
+
+        synchronized String accept(float[] samples, int length) {
             float[] chunk = samples;
             if (length != samples.length) {
                 chunk = new float[length];

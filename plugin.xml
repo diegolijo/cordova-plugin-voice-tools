@@ -41,6 +41,6 @@
         <source-file src="src/android/RecognizerEngine.java" target-dir="src/com/vayapedal/fastconformer" />
         <source-file src="src/android/SherpaBridge.java" target-dir="src/com/vayapedal/fastconformer" />
         <source-file src="src/android/KeywordEngine.java" target-dir="src/com/vayapedal/fastconformer" />
-        <source-file src="src/android/KeywordLists.java" target-dir="src/com/vayapedal/fastconformer" />
+        <source-file src="src/android/TokenCapture.java" target-dir="src/com/vayapedal/fastconformer" />
     </platform>
 </plugin>

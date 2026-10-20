@@ -39,6 +39,22 @@ export interface VoicePreparedEvent {
   tool: VoiceTool;
 }
 
+/** La app ha guardado la lista de esa herramienta. */
+export interface VoiceKeywordsEvent {
+  type: 'keywords';
+  tool: 'wake' | 'commands';
+}
+
+/**
+ * Tokens de una palabra recién dicha.
+ * En wake son fonemas (`K IH1 T`). En commands son las piezas de ese modelo.
+ */
+export interface VoiceTokensEvent {
+  type: 'tokens';
+  tool: 'wake' | 'commands';
+  tokens: string;
+}
+
 /** El detector de palabras ha oído una de su lista. */
 export interface VoiceKeywordEvent {
   type: 'keyword';
@@ -77,6 +93,8 @@ export type VoiceEvent =
   | VoiceDownloadEvent
   | VoiceReadyEvent
   | VoicePreparedEvent
+  | VoiceKeywordsEvent
+  | VoiceTokensEvent
   | VoiceKeywordEvent
   | VoiceSpeechEvent
   | VoiceTextEvent
@@ -90,6 +108,8 @@ interface VoiceBridge {
   subscribe(success: (event: VoiceEvent) => void, error?: VoiceFailure): void;
   unsubscribe(success?: VoiceSuccess, error?: VoiceFailure): void;
   download(tool: string, success?: VoiceSuccess, error?: VoiceFailure): void;
+  keywords(tool: 'wake' | 'commands', body: string, success?: VoiceSuccess, error?: VoiceFailure): void;
+  capture(tool: 'wake' | 'commands', success?: VoiceSuccess, error?: VoiceFailure): void;
   prepare(tool: VoiceTool, success?: VoiceSuccess, error?: VoiceFailure): void;
   use(tool: VoiceTool, success?: VoiceSuccess, error?: VoiceFailure): void;
   enable(lang: VoiceLang, success?: VoiceSuccess, error?: VoiceFailure): void;
@@ -175,6 +195,23 @@ export class VoiceTools {
    */
   static download(tool: VoiceTool | VoiceLang = 'dictation', success?: VoiceSuccess, error?: VoiceFailure): void {
     VoiceTools.native().download(tool, success, error);
+  }
+
+  /**
+   * Guarda la lista que manda la app y, si el detector ya estaba cargado, la aplica.
+   * Cada línea es `tokens @ETIQUETA`. subscribe() recibe { type: 'keywords', tool }.
+   */
+  static keywords(tool: 'wake' | 'commands', body: string, success?: VoiceSuccess, error?: VoiceFailure): void {
+    VoiceTools.native().keywords(tool, body, success, error);
+  }
+
+  /**
+   * Escucha una palabra y devuelve los tokens del modelo.
+   * En wake son fonemas. En commands son las piezas de ese modelo, que son las que admite su lista.
+   * subscribe() recibe { type: 'tokens', tool, tokens }.
+   */
+  static capture(tool: 'wake' | 'commands', success?: VoiceSuccess, error?: VoiceFailure): void {
+    VoiceTools.native().capture(tool, success, error);
   }
 
   /**
