@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin
+    xmlns="http://apache.org/cordova/ns/plugins/1.0"
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    id="cordova-plugin-fastconformer"
+    version="0.1.0">
+    <name>cordova-plugin-fastconformer</name>
+    <description>Offline Spanish speech recognition with sherpa-onnx FastConformer CTC</description>
+    <license>MIT</license>
+    <keywords>speech to text, FastConformer, sherpa-onnx</keywords>
+    <engines>
+        <engine name="cordova-android" version=">=12.0.0" />
+    </engines>
+
+    <platform name="android">
+        <js-module src="www/fastconformer.js" name="FastConformer">
+            <clobbers target="cordova.plugins.FastConformer" />
+        </js-module>
+
+        <config-file target="res/xml/config.xml" parent="/*">
+            <feature name="FastConformer">
+                <param name="android-package" value="com.vayapedal.fastconformer.FastConformer" />
+                <param name="onload" value="true" />
+            </feature>
+        </config-file>
+
+        <config-file target="AndroidManifest.xml" parent="/*">
+            <uses-permission android:name="android.permission.RECORD_AUDIO" />
+            <uses-permission android:name="android.permission.INTERNET" />
+        </config-file>
+
+        <framework src="org.apache.commons:commons-compress:1.27.1" />
+        <framework src="org.jetbrains.kotlin:kotlin-stdlib:1.9.24" />
+        <framework src="src/android/fastconformer.gradle" custom="true" type="gradleReference" />
+
+        <lib-file src="src/android/libs/sherpa-onnx-1.13.8.aar" />
+        <resource-file src="src/android/proguard-sherpa.pro" target="proguard-sherpa.pro" />
+
+        <source-file src="src/android/FastConformer.java" target-dir="java/com/vayapedal/fastconformer" />
+        <source-file src="src/android/ModelStore.java" target-dir="java/com/vayapedal/fastconformer" />
+        <source-file src="src/android/RecognizerEngine.java" target-dir="java/com/vayapedal/fastconformer" />
+        <source-file src="src/android/SherpaBridge.java" target-dir="java/com/vayapedal/fastconformer" />
+    </platform>
+</plugin>

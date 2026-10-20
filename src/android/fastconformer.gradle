@@ -1,0 +1,27 @@
+def sherpaAar = file('libs/sherpa-onnx-1.13.8.aar')
+def sherpaOut = file("${buildDir}/sherpa-onnx-aar")
+
+tasks.register('explodeSherpaOnnxAar', Sync) {
+    from(zipTree(sherpaAar))
+    into(sherpaOut)
+}
+
+dependencies {
+    implementation files("${buildDir}/sherpa-onnx-aar/classes.jar")
+}
+
+android.sourceSets.main.jniLibs.srcDir("${buildDir}/sherpa-onnx-aar/jni")
+android.buildTypes.all { buildType ->
+    buildType.proguardFile file('src/main/proguard-sherpa.pro')
+}
+
+afterEvaluate {
+    tasks.matching { task ->
+        def name = task.name
+        name == 'preBuild' ||
+            (name.startsWith('compile') && (name.contains('Java') || name.contains('Kotlin'))) ||
+            (name.startsWith('merge') && name.contains('JniLib'))
+    }.configureEach {
+        dependsOn 'explodeSherpaOnnxAar'
+    }
+}
