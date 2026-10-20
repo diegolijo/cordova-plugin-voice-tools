@@ -89,6 +89,11 @@ interface CordovaHost {
  * Reconocimiento offline en español o inglés.
  * El texto llega a subscribe() en cuanto el reconocedor cierra una frase.
  */
+function voz(origen: 'arranque' | 'error', message: string): void {
+  const color = origen === 'error' ? '#f28b82' : '#8ab4f8';
+  console.log(`%c[voz|${origen}] ${message}`, `color:${color};font-weight:bold`);
+}
+
 export class FastConformer {
 
   private static bridge: FastConformerBridge | null = null;
@@ -101,20 +106,25 @@ export class FastConformer {
    */
   static init(): Promise<void> {
     if (FastConformer.bridge) {
+      voz('arranque', 'init ya tenía el puente');
       return Promise.resolve();
     }
     const found = FastConformer.lookup();
     if (found) {
+      voz('arranque', 'init encontró cordova.plugins.FastConformer');
       FastConformer.bridge = found;
       return Promise.resolve();
     }
+    voz('arranque', 'init espera deviceready');
     return new Promise((resolve, reject) => {
       const onReady = (): void => {
         const plugin = FastConformer.lookup();
         if (!plugin) {
+          voz('error', 'init: cordova-plugin-fastconformer no está instalado');
           reject(new Error('cordova-plugin-fastconformer no está instalado'));
           return;
         }
+        voz('arranque', 'init en deviceready encontró el puente');
         FastConformer.bridge = plugin;
         resolve();
       };

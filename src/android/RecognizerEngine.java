@@ -3,6 +3,7 @@ package com.vayapedal.fastconformer;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.os.SystemClock;
 import android.util.Log;
 
 public class RecognizerEngine {
@@ -58,16 +59,19 @@ public class RecognizerEngine {
     }
 
     void start(String mode, Listener listener) {
+        Log.i(TAG, "[voz|audio] start modo=" + mode);
         if (!MODE_CONTINUOUS.equals(mode) && !MODE_ONESHOT.equals(mode) && !MODE_MANUAL.equals(mode)) {
             listener.onError("Modo no válido: " + mode);
             return;
         }
         synchronized (lock) {
             if (bridge == null) {
+                Log.i(TAG, "[voz|error] el modelo no está cargado");
                 listener.onError("El modelo no está cargado");
                 return;
             }
             if (running || (audioThread != null && audioThread.isAlive())) {
+                Log.i(TAG, "[voz|error] el reconocedor ya está escuchando");
                 listener.onError("El reconocedor ya está escuchando");
                 return;
             }
@@ -79,6 +83,7 @@ public class RecognizerEngine {
                 AudioFormat.ENCODING_PCM_16BIT
             );
             if (minBuffer <= 0) {
+                Log.i(TAG, "[voz|error] minBuffer=" + minBuffer);
                 listener.onError("El micrófono no está disponible");
                 return;
             }
@@ -91,6 +96,7 @@ public class RecognizerEngine {
                 bufferSize
             );
             if (recorder.getState() != AudioRecord.STATE_INITIALIZED) {
+                Log.i(TAG, "[voz|error] AudioRecord estado=" + recorder.getState());
                 recorder.release();
                 recorder = null;
                 listener.onError("No se pudo abrir el micrófono");
@@ -100,6 +106,8 @@ public class RecognizerEngine {
             manualCount = 0;
             running = true;
             recorder.startRecording();
+            Log.i(TAG, "[voz|audio] micrófono abierto, recordingState=" + recorder.getRecordingState()
+                + " buffer=" + bufferSize);
             audioThread = new Thread(() -> capture(listener), "fastconformer-audio");
             audioThread.start();
         }
@@ -151,19 +159,44 @@ public class RecognizerEngine {
         int filled = 0;
         boolean speechAnnounced = false;
         boolean manualOverflow = false;
+        int windows = 0;
+        int peak = 0;
+        boolean firstWindow = true;
+        long nextBeat = SystemClock.elapsedRealtime();
         String activeMode;
         synchronized (lock) {
             activeMode = mode;
         }
         try {
+            Log.i(TAG, "[voz|audio] bucle de captura, modo=" + activeMode);
             while (running) {
                 AudioRecord current = recorder;
                 if (current == null) {
+                    Log.i(TAG, "[voz|audio] recorder nulo, salgo");
                     break;
                 }
                 int read = current.read(pcm, 0, pcm.length);
                 if (read <= 0 || !running) {
+                    Log.i(TAG, "[voz|audio] read=" + read + " running=" + running);
                     break;
+                }
+                int windowPeak = 0;
+                for (int sample = 0; sample < read; sample++) {
+                    int abs = Math.abs(pcm[sample]);
+                    if (abs > windowPeak) {
+                        windowPeak = abs;
+                    }
+                }
+                if (windowPeak > peak) {
+                    peak = windowPeak;
+                }
+                windows++;
+                long now = SystemClock.elapsedRealtime();
+                if (firstWindow || now >= nextBeat) {
+                    Log.i(TAG, "[voz|audio] ventanas=" + windows + " pico=" + peak);
+                    peak = 0;
+                    firstWindow = false;
+                    nextBeat = now + 2000;
                 }
                 if (MODE_MANUAL.equals(activeMode)) {
                     manualOverflow = appendManual(pcm, read) || manualOverflow;
@@ -180,17 +213,21 @@ public class RecognizerEngine {
                         currentBridge = bridge;
                     }
                     if (currentBridge == null) {
+                        Log.i(TAG, "[voz|modelo] puente nulo durante la captura");
                         running = false;
                         break;
                     }
                     currentBridge.accept(window);
                     if (!speechAnnounced && currentBridge.isSpeechDetected()) {
                         speechAnnounced = true;
+                        Log.i(TAG, "[voz|audio] voz detectada");
                         listener.onSpeech();
                     }
                     FloatArray segment = takeSegment(currentBridge);
                     while (segment != null && running) {
+                        Log.i(TAG, "[voz|audio] segmento muestras=" + segment.samples.length);
                         String text = currentBridge.transcribe(segment.samples);
+                        Log.i(TAG, "[voz|texto] \"" + text + "\"");
                         speechAnnounced = false;
                         if (!text.isEmpty()) {
                             listener.onText(text, activeMode);
@@ -203,6 +240,7 @@ public class RecognizerEngine {
                     }
                 }
             }
+            Log.i(TAG, "[voz|audio] fin de captura, modo=" + activeMode);
             if (MODE_MANUAL.equals(activeMode)) {
                 finishManual(listener, activeMode, manualOverflow);
             }
@@ -210,7 +248,7 @@ public class RecognizerEngine {
                 listener.onStopped(activeMode);
             }
         } catch (Exception e) {
-            Log.e(TAG, "capture", e);
+            Log.e(TAG, "[voz|error] capture", e);
             listener.onError(e.getMessage() == null ? "Error de reconocimiento" : e.getMessage());
             if (notifyOnStop) {
                 listener.onStopped(activeMode);
@@ -258,6 +296,7 @@ public class RecognizerEngine {
             return;
         }
         String text = currentBridge.transcribe(samples);
+        Log.i(TAG, "[voz|texto] manual \"" + text + "\"");
         if (!text.isEmpty()) {
             listener.onText(text, activeMode);
         }

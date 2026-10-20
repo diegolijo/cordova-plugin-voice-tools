@@ -23,6 +23,13 @@ public class ModelStore {
 
     static final String LANG_ES = "es";
     static final String LANG_EN = "en";
+    static final String TOOL_WAKE = "wake";
+    static final String TOOL_COMMANDS = "commands";
+    static final String TOOL_DICTATION = "dictation";
+    private static final String WAKE_URL =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2";
+    private static final String COMMANDS_URL =
+        "https://huggingface.co/jguerrisi/sherpa-onnx-kws-zipformer-es-3M-2026-08-08/resolve/main/";
     private static final String ES_URL =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-fast-conformer-ctc-es-1424-int8.tar.bz2";
     private static final String EN_URL =
@@ -89,6 +96,8 @@ public class ModelStore {
     }
 
     void download(String lang, Progress progress) {
+        Log.i(TAG, "[voz|descarga] download lang=" + lang + " listo=" + isReady(lang));
+        logFiles(lang);
         if (canonical(lang) == null) {
             progress.onError("Idioma no válido: " + lang);
             return;
@@ -102,15 +111,18 @@ public class ModelStore {
         File archive = new File(root, lang + ".tar.bz2");
         try {
             if (isReady(lang)) {
+                Log.i(TAG, "[voz|descarga] estado=saved ya estaba en disco");
                 progress.onDownload("saved");
                 return;
             }
             if (!dir.exists() && !dir.mkdirs()) {
                 throw new IOException("No se pudo crear " + dir.getAbsolutePath());
             }
+            Log.i(TAG, "[voz|descarga] estado=start");
             progress.onDownload("start");
             if (getAcousticModel(lang) == null || getTokens(lang) == null) {
                 downloadTo(modelUrl(lang), archive);
+                Log.i(TAG, "[voz|descarga] estado=extract");
                 progress.onDownload("extract");
                 extractModel(archive, dir);
                 //noinspection ResultOfMethodCallIgnored
@@ -122,13 +134,31 @@ public class ModelStore {
             if (!isReady(lang)) {
                 throw new IOException("El modelo descargado no contiene model.int8.onnx y tokens.txt");
             }
+            Log.i(TAG, "[voz|descarga] estado=saved");
+            logFiles(lang);
             progress.onDownload("saved");
         } catch (Exception e) {
-            Log.e(TAG, "download", e);
+            Log.e(TAG, "[voz|error] download", e);
             progress.onError(e.getMessage() == null ? "Error de descarga" : e.getMessage());
         } finally {
             downloading = false;
         }
+    }
+
+    private void logFiles(String lang) {
+        File model = canonical(lang) == null ? null : getAcousticModel(lang);
+        File tokens = canonical(lang) == null ? null : getTokens(lang);
+        File vad = getVadModel();
+        Log.i(TAG, "[voz|descarga] modelo=" + describe(model)
+            + " tokens=" + describe(tokens)
+            + " vad=" + describe(vad));
+    }
+
+    private static String describe(File file) {
+        if (file == null) {
+            return "falta";
+        }
+        return file.getAbsolutePath() + " (" + file.length() + " bytes)";
     }
 
     private File modelDir(String lang) {
@@ -219,7 +249,145 @@ public class ModelStore {
         }
     }
 
-    static JSONObject downloadEvent(String state, String lang) throws Exception {
-        return new JSONObject().put("type", "download").put("state", state).put("lang", lang);
+    static boolean isTool(String value) {
+        return TOOL_WAKE.equals(value) || TOOL_COMMANDS.equals(value) || TOOL_DICTATION.equals(value);
+    }
+
+    boolean isKwsReady(String tool) {
+        return kwsFile(tool, "encoder.int8.onnx") != null
+            && kwsFile(tool, "decoder.onnx") != null
+            && kwsFile(tool, "joiner.int8.onnx") != null
+            && kwsFile(tool, "tokens.txt") != null
+            && kwsFile(tool, "keywords.txt") != null;
+    }
+
+    File kwsEncoder(String tool) {
+        return kwsFile(tool, "encoder.int8.onnx");
+    }
+
+    File kwsDecoder(String tool) {
+        return kwsFile(tool, "decoder.onnx");
+    }
+
+    File kwsJoiner(String tool) {
+        return kwsFile(tool, "joiner.int8.onnx");
+    }
+
+    File kwsTokens(String tool) {
+        return kwsFile(tool, "tokens.txt");
+    }
+
+    File kwsKeywords(String tool) {
+        return kwsFile(tool, "keywords.txt");
+    }
+
+    void downloadTool(String tool, Progress progress) {
+        if (TOOL_DICTATION.equals(tool)) {
+            download(LANG_ES, progress);
+            return;
+        }
+        if (!TOOL_WAKE.equals(tool) && !TOOL_COMMANDS.equals(tool)) {
+            progress.onError("Herramienta no válida: " + tool);
+            return;
+        }
+        if (downloading) {
+            progress.onError("Ya hay una descarga en curso");
+            return;
+        }
+        downloading = true;
+        File dir = new File(root, tool);
+        try {
+            if (!dir.exists() && !dir.mkdirs()) {
+                throw new IOException("No se pudo crear " + dir.getAbsolutePath());
+            }
+            writeKeywords(tool, dir);
+            if (isKwsReady(tool)) {
+                progress.onDownload("saved");
+                return;
+            }
+            progress.onDownload("start");
+            if (TOOL_WAKE.equals(tool)) {
+                File archive = new File(root, "wake.tar.bz2");
+                downloadTo(WAKE_URL, archive);
+                progress.onDownload("extract");
+                extractNamed(archive, dir, wakeNames());
+                //noinspection ResultOfMethodCallIgnored
+                archive.delete();
+            } else {
+                downloadTo(COMMANDS_URL + "encoder-epoch-20-avg-2-chunk-16-left-64.int8.onnx", new File(dir, "encoder.int8.onnx"));
+                downloadTo(COMMANDS_URL + "decoder-epoch-20-avg-2-chunk-16-left-64.int8.onnx", new File(dir, "decoder.onnx"));
+                downloadTo(COMMANDS_URL + "joiner-epoch-20-avg-2-chunk-16-left-64.int8.onnx", new File(dir, "joiner.int8.onnx"));
+                downloadTo(COMMANDS_URL + "tokens.txt", new File(dir, "tokens.txt"));
+            }
+            writeKeywords(tool, dir);
+            if (!isKwsReady(tool)) {
+                throw new IOException("El modelo de " + tool + " no se ha guardado");
+            }
+            progress.onDownload("saved");
+        } catch (Exception e) {
+            Log.e(TAG, "[voz|error] download " + tool, e);
+            progress.onError(e.getMessage() == null ? "Error de descarga" : e.getMessage());
+        } finally {
+            downloading = false;
+        }
+    }
+
+    private File kwsFile(String tool, String name) {
+        File file = new File(new File(root, tool), name);
+        return file.isFile() && file.length() > 0 ? file : null;
+    }
+
+    private static void writeKeywords(String tool, File dir) throws IOException {
+        String body = TOOL_WAKE.equals(tool) ? KeywordLists.WAKE : KeywordLists.COMMANDS;
+        File out = new File(dir, "keywords.txt");
+        try (FileOutputStream output = new FileOutputStream(out)) {
+            output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    private static Map<String, String> wakeNames() {
+        Map<String, String> names = new HashMap<>();
+        names.put("encoder-epoch-13-avg-2-chunk-8-left-64.int8.onnx", "encoder.int8.onnx");
+        names.put("decoder-epoch-13-avg-2-chunk-8-left-64.onnx", "decoder.onnx");
+        names.put("joiner-epoch-13-avg-2-chunk-8-left-64.int8.onnx", "joiner.int8.onnx");
+        names.put("tokens.txt", "tokens.txt");
+        return names;
+    }
+
+    private void extractNamed(File archiveFile, File destination, Map<String, String> names) throws IOException {
+        try (InputStream fileIn = new BufferedInputStream(new java.io.FileInputStream(archiveFile), BUFFER);
+             BZip2CompressorInputStream bzip = new BZip2CompressorInputStream(fileIn);
+             TarArchiveInputStream tar = new TarArchiveInputStream(bzip)) {
+            TarArchiveEntry entry;
+            while ((entry = tar.getNextTarEntry()) != null) {
+                if (entry.isDirectory()) {
+                    continue;
+                }
+                String name = new File(entry.getName()).getName();
+                String stored = names.get(name);
+                if (stored == null) {
+                    continue;
+                }
+                if (entry.getName().contains("..")) {
+                    throw new IOException("Entrada no válida en el archivo: " + entry.getName());
+                }
+                File out = new File(destination, stored);
+                try (BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(out), BUFFER)) {
+                    byte[] buffer = new byte[BUFFER];
+                    int read;
+                    while ((read = tar.read(buffer)) != -1) {
+                        output.write(buffer, 0, read);
+                    }
+                }
+            }
+        }
+    }
+
+    static JSONObject downloadEvent(String state, String tool, String lang) throws Exception {
+        JSONObject event = new JSONObject().put("type", "download").put("state", state).put("tool", tool);
+        if (lang != null) {
+            event.put("lang", lang);
+        }
+        return event;
     }
 }

@@ -1,10 +1,10 @@
 {
-  "name": "cordova-plugin-fastconformer",
-  "version": "0.1.0",
-  "description": "Reconocimiento de voz offline en español con FastConformer (sherpa-onnx) para Cordova Android",
+  "name": "cordova-plugin-voice-tools",
+  "version": "0.2.0",
+  "description": "Suite de voz offline para Cordova Android: detector de palabra clave, detector de órdenes y dictado FastConformer",
   "author": "Diego Santiago - Vayapedal",
   "license": "MIT",
-  "types": "typescript/fastconformer.ts",
+  "types": "typescript/voice-tools.ts",
   "keywords": [
     "android",
     "speech-to-text",
